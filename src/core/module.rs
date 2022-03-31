@@ -1,7 +1,15 @@
 use wasmer::{Store, Module, Instance, Value, imports, ImportObject, Function};
 use macroquad::prelude::*;
 use uuid::Uuid;
-use crate::misc::{Point};
+use std::{
+    io::{Read},
+    path::{Path},
+    fs::{File},
+    collections::HashMap,
+};
+use crate::misc::{Point, parse_path};
+
+const DEFAULT_CATEGORY: &str = "Misc";
 
 /// The instance of a [`LogicModule`].
 ///
@@ -52,7 +60,7 @@ impl LogicInstance {
 /// Represents a WebAssembly module with additional infromation.
 pub struct LogicModule {
     /// The name of the component the module represents.
-    name: String,
+    pub name: String,
     /// A unique id.
     id: usize,
     /// A range of valid inputs.
@@ -95,11 +103,13 @@ impl LogicModule {
         location: Point, 
         rotation: f32
     ) -> Option<LogicInstance> {
-        if let Ok(instance) = Instance::new(&self.module, imports) {
-            Some(LogicInstance::new(self.name.clone(), location, rotation, instance))
-        } else {
-            None
-        }
+        match Instance::new(&self.module, imports) {
+            Ok(instance) => Some(LogicInstance::new(self.name.clone(), location, rotation, instance)),
+            Err(e) => {
+                eprintln!("{}", e);
+                None
+            }
+        }     
     }
 }
 
@@ -110,7 +120,7 @@ pub struct Category {
     /// A unique group-id.
     id: usize,
     /// A list of [`LogicModules`].
-    modules: Vec<LogicModule>,
+    modules: HashMap<String, LogicModule>,
 }
 
 impl Category {
@@ -119,17 +129,17 @@ impl Category {
         Self {
             name,
             id,
-            modules: Vec::new(),
+            modules: HashMap::new(),
         }
     }
     
     /// Add a [`LogicModule`] to the category.
     pub fn add_module(&mut self, module: LogicModule) {
-        self.modules.push(module);
+        self.modules.insert(module.name.clone(), module);
     }
     
     /// Get the [`LogicModules`] the given category contains.
-    pub fn modules(&self) -> &Vec<LogicModule> {
+    pub fn modules(&self) -> &HashMap<String, LogicModule> {
         &self.modules
     }
 }
@@ -143,9 +153,9 @@ pub struct ModuleEnv {
     /// machine [`https://docs.rs/wasmer/latest/wasmer/struct.Store.html`].
     store: Store,
     /// A list of existing categories. Each category contains a set of modules.
-    categories: Vec<Category>,
+    categories: HashMap<String, Category>,
     /// All instances of [`LogicModules`].
-    instances: Vec<LogicInstance>,
+    instances: HashMap<Uuid, LogicInstance>,
     /// A import contract all modules should obey.
     imports: ImportObject,
     /// Global category counter.
@@ -160,10 +170,10 @@ impl ModuleEnv {
 
         Self {
             store: store.clone(),
-            categories: Vec::new(),
-            instances: Vec::new(),
+            categories: HashMap::new(),
+            instances: HashMap::new(),
             imports: imports! {
-                "megs" => {
+                "env" => {
                     "draw_black_rectangle" => Function::new_native(&store, draw_black_rectangle),
                 },
             },
@@ -172,53 +182,77 @@ impl ModuleEnv {
         }
     }
 
-    pub fn categories(&self) -> &Vec<Category> {
+    pub fn categories(&self) -> &HashMap<String, Category> {
         &self.categories
     }
 
-    pub fn instances(&self) -> &Vec<LogicInstance> {
+    pub fn instances(&self) -> &HashMap<Uuid, LogicInstance> {
         &self.instances
     }
 
     pub fn on_tick(&self) {
-        for instance in &self.instances {
+        for (_, instance) in &self.instances {
             instance.draw();
         }
     }
 
     pub fn add_category(&mut self, name: String) {
-        self.categories.push(
+        self.categories.insert(
+            name.clone(),
             Category::new(name, self.cat_id)
         );
         self.cat_id += 1;
     }
     
-    pub fn add_module(&mut self, category: usize, name: String, module: &[u8]) -> Result<(), ()> {
-        if category >= self.categories.len() {
-            return Err(());
+    pub fn add_module_raw(&mut self, category: &str, name: &str, module: &[u8]) -> Result<(), ()> {
+        if !self.categories.contains_key(category) {
+            self.add_category(category.to_string());
         }
 
-        if let Ok(module) = Module::new(&self.store, module) {
+        match Module::new(&self.store, module) {
+            Ok(module) => {
+                self.categories.get_mut(category).unwrap().add_module(
+                    LogicModule::new(
+                        name.to_string(),
+                        self.mod_id,
+                        module,
+                    )
+                );
 
-            self.categories[category].add_module(
-                LogicModule::new(
-                    name,
-                    self.mod_id,
-                    module,
-                )
-            );
+                self.mod_id += 1;
 
-            self.mod_id += 1;
-
-            Ok(())
+                Ok(())
+            },
+            Err(e) => {
+                eprintln!("{}", e);
+                Err(())
+            }
+        }
+    }
+    
+    /// Add WebAssembly module from file path.
+    pub fn add_module(&mut self, wasm_file: &Path) -> Result<(), ()> {
+        let mut buffer = Vec::new();
+        
+        if let Ok(mut module) = File::open(wasm_file) {
+            if let Ok(_) = module.read_to_end(&mut buffer) {
+                if let Some((category, name)) = parse_path(wasm_file) {
+                    println!("{}, {}", &category, &name);
+                    self.add_module_raw(&category, &name, &buffer)
+                } else {
+                    Err(())
+                }
+            } else {
+                Err(())
+            }
         } else {
             Err(())
         }
     }
 
-    pub fn instantiate(&mut self, category: usize, module: usize, pos: Point) -> Option<Uuid> {
-        if category >= self.categories.len() || 
-            module >= self.categories[category].modules().len() {
+    pub fn instantiate(&mut self, category: &str, module: &str, pos: Point) -> Option<Uuid> {
+        if !self.categories.contains_key(category) || 
+            !self.categories[category].modules().contains_key(module) {
             return None;
         }
 
@@ -226,9 +260,10 @@ impl ModuleEnv {
             &self.imports, pos, 0.0
         ) {
             let uuid = Some(instance.id());
-            self.instances.push(instance);
+            self.instances.insert(instance.id(), instance);
             uuid
         } else {
+            println!("fuck");
             None
         }
     }
@@ -259,10 +294,10 @@ mod tests {
     }
 
     #[test]
-    fn add_modules_test() {
+    fn add_modules_raw_test() {
         let module_wat = r#"
             (module
-                (import "megs" "draw_black_rectangle" (func $dbr (param f32 f32 f32 f32)))
+                (import "env" "draw_black_rectangle" (func $dbr (param f32 f32 f32 f32)))
                 (func $draw (export "draw") 
                     (param $x f32) (param $y f32) (param $r f32)
                     
@@ -274,13 +309,13 @@ mod tests {
         let mut env = ModuleEnv::new();
         env.add_category("Gates".to_string());
         env.add_category("Input Controlls".to_string());
-        env.add_module(0, "AND".to_string(), module_wat.as_bytes());
-        assert_eq!(1, env.categories()[0].modules().len());
-        assert_eq!(0, env.categories()[1].modules().len());
+        env.add_module_raw("Gates", "AND", module_wat.as_bytes());
+        assert_eq!(1, env.categories()["Gates"].modules().len());
+        assert_eq!(0, env.categories()["Input Controlls"].modules().len());
 
-        env.instantiate(0, 0, Point { x: 0.0, y: 0.0 });
-        env.instantiate(0, 0, Point { x: 50.0, y: 30.0 });
-        env.instantiate(0, 0, Point { x: -15.0, y: 200.0 });
+        env.instantiate("Gates", "AND", Point { x: 0.0, y: 0.0 });
+        env.instantiate("Gates", "AND", Point { x: 50.0, y: 30.0 });
+        env.instantiate("Gates", "AND", Point { x: -15.0, y: 200.0 });
         assert_eq!(3, env.instances().len());
     }
 }

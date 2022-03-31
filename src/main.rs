@@ -18,12 +18,13 @@ async fn main() {
 
     let mut env = ModuleEnv::new();
     env.add_category("Gates".to_string());
-    env.add_module(0, "AND".to_string(), module_wat.as_bytes());
-    env.instantiate(0, 0, Point { x: 0.0, y: 0.0 });
-    env.instantiate(0, 0, Point { x: 50.0, y: 30.0 });
-    env.instantiate(0, 0, Point { x: -15.0, y: 200.0 });
+    //env.add_module_raw("Gates", "AND", module_wat.as_bytes());
+    env.add_module(&std::path::Path::new("assets/modules/Gates/And.wasm"));
+    env.instantiate("Gates", "And", Point { x: 0.0, y: 0.0 });
+    env.instantiate("Gates", "And", Point { x: 50.0, y: 30.0 });
+    env.instantiate("Gates", "And", Point { x: -15.0, y: 200.0 });
 
-    println!("{}", env.categories()[0].modules().len());
+    println!("{}", env.categories()["Gates"].modules().len());
     println!("{}", env.instances().len());
 
     loop {
