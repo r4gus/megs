@@ -3,29 +3,43 @@ use macroquad::prelude::*;
 use uuid::Uuid;
 use crate::misc::{Point};
 
+/// The instance of a [`LogicModule`].
+///
+/// This class acts as a wrapper around a WebAssembly module
+/// to add further functionality like drag'n drop.
 pub struct LogicInstance {
-    name: String,
+    /// The name of the instance (e.g. 'AND', 'My custom gate', ...).
+    pub name: String,
+    /// A unique identifier.
     id: Uuid,
-    location: Point,
-    rotation: f32,
+    /// The position of the instance in 2d space.
+    pub location: Point,
+    /// The rotation of the instance in deg.
+    pub rotation: f32,
+    /// The WebAssembly instance that contains the actual logic.
     instance: Instance,
 }
 
 impl LogicInstance {
-    pub fn new(name: String, location: Point, instance: Instance) -> Self {
+    /// Create a new instance.
+    fn new(name: String, location: Point, rotation: f32, instance: Instance) -> Self {
         Self {
             name,
             id: Uuid::new_v4(),
             location,
-            rotation: 0.0,
+            rotation,
             instance,
         }
     }
-
+    
+    /// Get the Uuid of the instance.
     pub fn id(&self) -> Uuid {
         self.id.clone()
     }
-
+    
+    /// Draw the instance
+    ///
+    /// TODO: Encapsulate specific function within trait???
     pub fn draw(&self) {
         if let Ok(draw) = self.instance.exports.get_function("draw") {
             draw.call(&[Value::F32(self.location.x), Value::F32(self.location.y), Value::F32(self.rotation)]);
@@ -35,15 +49,22 @@ impl LogicInstance {
     }
 }
 
+/// Represents a WebAssembly module with additional infromation.
 pub struct LogicModule {
+    /// The name of the component the module represents.
     name: String,
+    /// A unique id.
     id: usize,
+    /// A range of valid inputs.
     inputs: (usize, usize),
+    /// A range of valid outputs.
     outputs: (usize, usize),
+    /// The actual WebAssembly module.
     module: Module,
 }
 
 impl LogicModule {
+    /// Create a new [`LogicModule`].
     pub fn new(name: String, id: usize, module: Module) -> Self {
         Self {
             name,
@@ -53,11 +74,12 @@ impl LogicModule {
             module,
         }
     }
-
+    
+    /// Get a reference to the WebAssembly module.
     pub fn module(&self) -> &Module {
         &self.module
     }
-
+    
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -65,15 +87,34 @@ impl LogicModule {
     pub fn id(&self) -> usize {
         self.id
     }
+    
+    /// Create a new instance based on the given module.
+    pub fn instantiate(
+        &self, 
+        imports: &ImportObject, 
+        location: Point, 
+        rotation: f32
+    ) -> Option<LogicInstance> {
+        if let Ok(instance) = Instance::new(&self.module, imports) {
+            Some(LogicInstance::new(self.name.clone(), location, rotation, instance))
+        } else {
+            None
+        }
+    }
 }
 
+/// A [`Category`] groups a number of [`LogicModules`].
 pub struct Category {
+    /// The name of the group.
     name: String,
+    /// A unique group-id.
     id: usize,
+    /// A list of [`LogicModules`].
     modules: Vec<LogicModule>,
 }
 
 impl Category {
+    /// Create a new category.
     pub fn new(name: String, id: usize) -> Self {
         Self {
             name,
@@ -81,11 +122,13 @@ impl Category {
             modules: Vec::new(),
         }
     }
-
+    
+    /// Add a [`LogicModule`] to the category.
     pub fn add_module(&mut self, module: LogicModule) {
         self.modules.push(module);
     }
-
+    
+    /// Get the [`LogicModules`] the given category contains.
     pub fn modules(&self) -> &Vec<LogicModule> {
         &self.modules
     }
@@ -99,10 +142,15 @@ pub struct ModuleEnv {
     /// been allocated during the lifetime of the abstract
     /// machine [`https://docs.rs/wasmer/latest/wasmer/struct.Store.html`].
     store: Store,
+    /// A list of existing categories. Each category contains a set of modules.
     categories: Vec<Category>,
+    /// All instances of [`LogicModules`].
     instances: Vec<LogicInstance>,
+    /// A import contract all modules should obey.
     imports: ImportObject,
+    /// Global category counter.
     cat_id: usize,
+    /// Global module counter
     mod_id: usize,
 }
 
@@ -168,27 +216,20 @@ impl ModuleEnv {
         }
     }
 
-    pub fn instantiate(&mut self, category: usize, module: usize, pos: Point) -> Result<Uuid, ()> {
+    pub fn instantiate(&mut self, category: usize, module: usize, pos: Point) -> Option<Uuid> {
         if category >= self.categories.len() || 
             module >= self.categories[category].modules().len() {
-            return Err(());
+            return None;
         }
 
-        if let Ok(instance) = Instance::new(
-            &self.categories[category].modules()[module].module(),
-            &self.imports
+        if let Some(instance) = self.categories[category].modules()[module].instantiate(
+            &self.imports, pos, 0.0
         ) {
-
-            let li = LogicInstance::new(
-                self.categories[category].modules()[module].name().to_string(),
-                pos,
-                instance,
-            );
-            let uuid = li.id();
-            self.instances.push(li);
-            Ok(uuid) 
+            let uuid = Some(instance.id());
+            self.instances.push(instance);
+            uuid
         } else {
-            Err(())
+            None
         }
     }
 }
