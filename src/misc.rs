@@ -3,6 +3,7 @@ use std::{
 };
 
 /// A point in 2d space.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Point {
     pub x: f32,
     pub y: f32,

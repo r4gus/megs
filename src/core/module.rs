@@ -8,13 +8,16 @@ use std::{
     collections::HashMap,
 };
 use crate::misc::{Point, parse_path};
-
-const DEFAULT_CATEGORY: &str = "Misc";
+use crate::contract::{
+    draw_rectangle,
+    Color as MColor,
+};
 
 /// The instance of a [`LogicModule`].
 ///
 /// This class acts as a wrapper around a WebAssembly module
 /// to add further functionality like drag'n drop.
+#[derive(Debug, Clone)]
 pub struct LogicInstance {
     /// The name of the instance (e.g. 'AND', 'My custom gate', ...).
     pub name: String,
@@ -58,6 +61,7 @@ impl LogicInstance {
 }
 
 /// Represents a WebAssembly module with additional infromation.
+#[derive(Debug, Clone)]
 pub struct LogicModule {
     /// The name of the component the module represents.
     pub name: String,
@@ -102,18 +106,20 @@ impl LogicModule {
         imports: &ImportObject, 
         location: Point, 
         rotation: f32
-    ) -> Option<LogicInstance> {
-        match Instance::new(&self.module, imports) {
-            Ok(instance) => Some(LogicInstance::new(self.name.clone(), location, rotation, instance)),
-            Err(e) => {
-                eprintln!("{}", e);
-                None
-            }
-        }     
+    ) -> Result<LogicInstance, wasmer::InstantiationError> {
+        Ok(
+            LogicInstance::new(
+                self.name.clone(), 
+                location, 
+                rotation, 
+                Instance::new(&self.module, imports)?
+            )
+        )
     }
 }
 
 /// A [`Category`] groups a number of [`LogicModules`].
+#[derive(Debug, Clone)]
 pub struct Category {
     /// The name of the group.
     name: String,
@@ -144,6 +150,7 @@ impl Category {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModuleEnv {
     /// The store represents all global state that can be
     /// manipulated by WebAssembly programs. It consists
@@ -174,7 +181,7 @@ impl ModuleEnv {
             instances: HashMap::new(),
             imports: imports! {
                 "env" => {
-                    "draw_black_rectangle" => Function::new_native(&store, draw_black_rectangle),
+                    "draw_rectangle" => Function::new_native(&store, draw_rectangle),
                 },
             },
             cat_id: 0,
@@ -204,50 +211,48 @@ impl ModuleEnv {
         self.cat_id += 1;
     }
     
-    pub fn add_module_raw(&mut self, category: &str, name: &str, module: &[u8]) -> Result<(), ()> {
+    pub fn add_module_raw(
+        &mut self, 
+        category: &str, 
+        name: &str, 
+        module: &[u8]
+    ) -> Result<(), wasmer::CompileError> {
+        // Create the category if it doesn't exist.
         if !self.categories.contains_key(category) {
             self.add_category(category.to_string());
         }
+        
+        let id = self.mod_id;
+        self.mod_id += 1;
 
-        match Module::new(&self.store, module) {
-            Ok(module) => {
-                self.categories.get_mut(category).unwrap().add_module(
-                    LogicModule::new(
-                        name.to_string(),
-                        self.mod_id,
-                        module,
-                    )
-                );
+        self.categories.get_mut(category).unwrap().add_module(
+            LogicModule::new(
+                name.to_string(),
+                id,
+                Module::new(&self.store, module)?
+            )
+        );
 
-                self.mod_id += 1;
-
-                Ok(())
-            },
-            Err(e) => {
-                eprintln!("{}", e);
-                Err(())
-            }
-        }
+        Ok(())
     }
     
     /// Add WebAssembly module from file path.
-    pub fn add_module(&mut self, wasm_file: &Path) -> Result<(), ()> {
+    pub fn add_module(&mut self, wasm_file: &Path) -> Option<()> { // TODO: figure out ret type
         let mut buffer = Vec::new();
         
         if let Ok(mut module) = File::open(wasm_file) {
             if let Ok(_) = module.read_to_end(&mut buffer) {
                 if let Some((category, name)) = parse_path(wasm_file) {
                     println!("{}, {}", &category, &name);
-                    self.add_module_raw(&category, &name, &buffer)
-                } else {
-                    Err(())
-                }
-            } else {
-                Err(())
-            }
-        } else {
-            Err(())
-        }
+                    match self.add_module_raw(&category, &name, &buffer) {
+                        Ok(_) => { return Some(()); },
+                        _ => {}
+                    }
+                } 
+            } 
+        } 
+
+        None
     }
 
     pub fn instantiate(&mut self, category: &str, module: &str, pos: Point) -> Option<Uuid> {
@@ -256,7 +261,7 @@ impl ModuleEnv {
             return None;
         }
 
-        if let Some(instance) = self.categories[category].modules()[module].instantiate(
+        if let Ok(instance) = self.categories[category].modules()[module].instantiate(
             &self.imports, pos, 0.0
         ) {
             let uuid = Some(instance.id());
@@ -267,10 +272,6 @@ impl ModuleEnv {
             None
         }
     }
-}
-
-fn draw_black_rectangle(x: f32, y: f32, w: f32, h: f32) {
-    draw_rectangle(x, y, w, h, Color::new(0., 0., 0., 1.));
 }
 
 #[cfg(test)]
@@ -297,7 +298,7 @@ mod tests {
     fn add_modules_raw_test() {
         let module_wat = r#"
             (module
-                (import "env" "draw_black_rectangle" (func $dbr (param f32 f32 f32 f32)))
+                (import "env" "draw_rectangle" (func $dbr (param f32 f32 f32 f32)))
                 (func $draw (export "draw") 
                     (param $x f32) (param $y f32) (param $r f32)
                     
