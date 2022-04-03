@@ -8,10 +8,6 @@ use std::{
     collections::HashMap,
 };
 use crate::misc::{Point, parse_path};
-use crate::contract::{
-    draw_rectangle,
-    Color as MColor,
-};
 
 /// The instance of a [`LogicModule`].
 ///
@@ -172,37 +168,55 @@ pub struct ModuleEnv {
 }
 
 impl ModuleEnv {
-    pub fn new() -> Self {
-        let store = Store::default();
-
+    /// Create a new [`ModuleEnv`] using the given store and contract.
+    ///
+    /// The store (see [`wasmer::Store`]) represents the global state
+    /// of the environment and the contract specifies which globals,
+    /// functions, ... all modules expect from the host environment
+    /// as imports.
+    pub fn new(store: Store, contract: ImportObject) -> Self {
         Self {
             store: store.clone(),
             categories: HashMap::new(),
             instances: HashMap::new(),
-            imports: imports! {
-                "env" => {
-                    "draw_rectangle" => Function::new_native(&store, draw_rectangle),
-                },
-            },
+            imports: contract,
             cat_id: 0,
             mod_id: 0,
         }
     }
-
+    
+    /// Get a reference to all existing categories.
     pub fn categories(&self) -> &HashMap<String, Category> {
         &self.categories
     }
-
+    
+    /// Get the names of all available categories.
+    pub fn category_names(&self) -> Vec<&String> {
+        self.categories.keys().collect()
+    }
+    
+    /// Get all module names of the given category.
+    pub fn module_names(&self, category: &str) -> Option<Vec<&String>> {
+        match self.categories.get(category) {
+            Some(category) => {
+                Some(category.modules().keys().collect())
+            },
+            None => None
+        }
+    }
+    
+    /// Get a reference to all existing instances.
     pub fn instances(&self) -> &HashMap<Uuid, LogicInstance> {
         &self.instances
     }
-
+    
     pub fn on_tick(&self) {
         for (_, instance) in &self.instances {
             instance.draw();
         }
     }
-
+    
+    /// Add a new category with the given name to the environment.
     pub fn add_category(&mut self, name: String) {
         self.categories.insert(
             name.clone(),
@@ -211,6 +225,12 @@ impl ModuleEnv {
         self.cat_id += 1;
     }
     
+    /// Add a new module to the specified category.
+    ///
+    /// If the category doesn't exist, a new one is created.
+    ///
+    /// After adding the module one can create new instances of
+    /// it by invoking [`ModuleEnv::instantiate`].
     pub fn add_module_raw(
         &mut self, 
         category: &str, 
@@ -236,7 +256,12 @@ impl ModuleEnv {
         Ok(())
     }
     
-    /// Add WebAssembly module from file path.
+    /// Add WebAssembly module from file path to the specified category.
+    ///
+    /// If the category doesn't exist, a new one is created.
+    ///
+    /// After adding the module one can create new instances of
+    /// it by invoking [`ModuleEnv::instantiate`].
     pub fn add_module(&mut self, wasm_file: &Path) -> Option<()> { // TODO: figure out ret type
         let mut buffer = Vec::new();
         
@@ -254,7 +279,8 @@ impl ModuleEnv {
 
         None
     }
-
+    
+    /// Create a new instance of the specified module.
     pub fn instantiate(&mut self, category: &str, module: &str, pos: Point) -> Option<Uuid> {
         if !self.categories.contains_key(category) || 
             !self.categories[category].modules().contains_key(module) {
@@ -277,42 +303,70 @@ impl ModuleEnv {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::{
+        draw_rectangle,
+        Color as MColor,
+    };
 
     #[test]
     fn create_new_module_env_test() {
-        let env = ModuleEnv::new();
+        let store = Store::default();
+        let contract = imports! {
+            "env" => {
+                "draw_rectangle" => Function::new_native(&store, draw_rectangle),
+            },
+        };
+        let env = ModuleEnv::new(store, contract);
         assert_eq!(0, env.categories().len());
         assert_eq!(0, env.instances().len());
     }
 
     #[test]
     fn add_category_test() {
-        let mut env = ModuleEnv::new();
+        let store = Store::default();
+        let contract = imports! {
+            "env" => {
+                "draw_rectangle" => Function::new_native(&store, draw_rectangle),
+            },
+        };
+        let mut env = ModuleEnv::new(store, contract);
         env.add_category("Gates".to_string());
         env.add_category("Input Controlls".to_string());
         assert_eq!(2, env.categories().len());
         assert_eq!(0, env.instances().len());
+
+        let mut names = env.category_names();
+        names.sort();
+        assert_eq!("Gates", names[0]);
+        assert_eq!("Input Controlls", names[1]);
     }
 
     #[test]
     fn add_modules_raw_test() {
         let module_wat = r#"
             (module
-                (import "env" "draw_rectangle" (func $dbr (param f32 f32 f32 f32)))
+                (import "env" "draw_rectangle" (func $dbr (param f32 f32 f32 f32 f32 f32 f32)))
                 (func $draw (export "draw") 
                     (param $x f32) (param $y f32) (param $r f32)
                     
-                    (call $dbr (local.get $x) (local.get $y) (f32.const 100.0) (f32.const 50.0))
+                    (call $dbr (local.get $x) (local.get $y) (f32.const 100.0) (f32.const 50.0) (f32.const 1.0) (f32.const 1.0) (f32.const 1.0))
                 )
             )
         "#;
 
-        let mut env = ModuleEnv::new();
+        let store = Store::default();
+        let contract = imports! {
+            "env" => {
+                "draw_rectangle" => Function::new_native(&store, draw_rectangle),
+            },
+        };
+        let mut env = ModuleEnv::new(store, contract);
         env.add_category("Gates".to_string());
         env.add_category("Input Controlls".to_string());
         env.add_module_raw("Gates", "AND", module_wat.as_bytes());
         assert_eq!(1, env.categories()["Gates"].modules().len());
         assert_eq!(0, env.categories()["Input Controlls"].modules().len());
+        assert_eq!("AND", env.module_names("Gates").unwrap()[0]);
 
         env.instantiate("Gates", "AND", Point { x: 0.0, y: 0.0 });
         env.instantiate("Gates", "AND", Point { x: 50.0, y: 30.0 });

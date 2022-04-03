@@ -2,6 +2,8 @@ use macroquad::prelude::*;
 use macroquad::ui::root_ui;
 use megs::core::module::*;
 use megs::misc::*;
+use megs::contract;
+use wasmer::{Store, Function, imports};
 
 #[macroquad::main("MEGS")]
 async fn main() {
@@ -16,7 +18,16 @@ async fn main() {
         )
     "#;
 
-    let mut env = ModuleEnv::new();
+    let store = Store::default();
+    let contract = imports! {
+        "env" => {
+            "draw_rectangle" => Function::new_native(&store, contract::draw_rectangle),
+            "draw_circle" => Function::new_native(&store, contract::draw_circle),
+            "draw_circle_lines" => Function::new_native(&store, contract::draw_circle_lines),
+            "draw_line" => Function::new_native(&store, contract::draw_line),
+        },
+    };
+    let mut env = ModuleEnv::new(store, contract);
     env.add_category("Gates".to_string());
     //env.add_module_raw("Gates", "AND", module_wat.as_bytes());
     env.add_module(&std::path::Path::new("assets/modules/Gates/and.wasm"));
@@ -42,6 +53,8 @@ async fn main() {
            println!("pushed");
         }
         */
+        
+
         draw_text(&format!("fps: {}", get_fps()), 300.0, 500.0, 30.0, BLACK);
 
         next_frame().await
