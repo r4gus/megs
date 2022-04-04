@@ -54,6 +54,14 @@ impl LogicInstance {
             // TODO: log error
         }
     }
+
+    pub fn submit_cursor_coords(&self, point: Point) {
+        if let Ok(submit) = self.instance.exports.get_function("cursor_coords") {
+            submit.call(&[Value::F32(point.x), Value::F32(point.y)]);
+        } else {
+            // TODO: log error
+        }
+    }
 }
 
 /// Represents a WebAssembly module with additional infromation.
