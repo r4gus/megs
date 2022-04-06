@@ -35,3 +35,7 @@ pub fn draw_circle_lines(x: f32, y: f32, rad: f32, thick: f32, r: f32, g: f32, b
 pub fn draw_line(x1: f32, y1: f32, x2: f32, y2: f32, thick: f32, r: f32, g: f32, b: f32) {
     shapes::draw_line(x1, y1, x2, y2, thick, color::Color::new(r, g, b, 1.));
 }
+
+pub fn draw_arc(x: f32, y: f32, radius: f32, start_angle: f32, end_angle: f32, thickness: f32) {
+
+}
