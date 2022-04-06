@@ -1,6 +1,14 @@
 use macroquad::{shapes, color};
 
 #[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum State {
+    Undefined,
+    Low,
+    High,
+}
+
+#[repr(C)]
 pub struct Color {
     /// red
     pub r: f32,

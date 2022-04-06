@@ -5,9 +5,53 @@ extern "C" {
     fn draw_line(x1: f32, y1: f32, x2: f32, y2: f32, thick: f32, r: f32, g: f32, b: f32);
 }    
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum State {
+    Undefined,
+    Low,
+    High,
+}
+
 pub const H1: f32 = 10.0;
 pub const WIDTH: f32 = H1 * 8.0;
 pub const HEIGHT: f32 = H1 * 6.5;
+
+pub const INPUTS_MIN: i32 = 2;
+pub const INPUTS_MAX: i32 = 8;
+static mut INPUTS_CUR: i32 = INPUTS_MIN;
+static mut INPUTS: [State; INPUTS_MAX as usize] = [State::Undefined; INPUTS_MAX as usize];
+
+pub const OUTPUTS_MIN: i32 = 1;
+pub const OUTPUTS_MAX: i32 = 1;
+static mut OUTPUTS_CUR: i32 = OUTPUTS_MIN;
+static mut OUTPUTS: [State; OUTPUTS_MAX as usize] = [State::Undefined; OUTPUTS_MAX as usize];
+
+#[no_mangle]
+pub extern "C" fn get_inputs_nr() -> i32 {
+    unsafe {
+        return INPUTS_CUR;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn set_inputs_nr(v: i32) {
+    if v >= INPUTS_MIN && v <= INPUTS_MAX {
+        unsafe {
+            INPUTS_CUR = v;
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn get_input(i: i32) -> Option<State> {
+    unsafe {
+        if i < INPUTS_CUR {
+            return  Some(INPUTS[i as usize]);
+        }
+    }
+    None
+}
 
 #[no_mangle]
 pub extern "C" fn width() -> f32 {

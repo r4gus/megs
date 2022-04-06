@@ -24,7 +24,7 @@ pub struct LogicInstance {
     /// The rotation of the instance in deg.
     pub rotation: f32,
     /// The WebAssembly instance that contains the actual logic.
-    instance: Instance,
+    pub instance: Instance,
 }
 
 impl LogicInstance {
