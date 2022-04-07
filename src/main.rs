@@ -35,18 +35,9 @@ async fn main() {
     env.instantiate("Gates", "and", Point { x: 50.0, y: 30.0 });
     env.instantiate("Gates", "and", Point { x: -15.0, y: 200.0 });
 
-    for i in 0..12000 {
-        env.instantiate("Gates", "and", Point { x: -15.0 + i as f32, y: 200.0 + i as f32 });
-    }
 
     println!("{}", env.categories()["Gates"].modules().len());
     println!("{}", env.instances().len());
-
-    for (_, instance) in env.instances().iter() {
-        let get_inp = instance.instance.exports.get_function("get_inputs_nr").unwrap();
-        let result = get_inp.call(&[]).unwrap();
-        println!("inputs: {:?}", result);
-    }    
 
     loop {
         clear_background(RED);
