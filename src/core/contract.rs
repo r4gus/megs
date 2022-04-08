@@ -13,11 +13,12 @@ pub struct Contract {
 }
 
 impl Contract {
-    fn format_export(exp: &ExportType) -> String {
-        let mut s = format!("{}(param", exp.name());
+    fn format_extern(ext: &ExternType) -> String {
+        let mut s = String::new();
 
-        match exp.ty() {
+        match ext {
             ExternType::Function(ft) => {
+                s += "(param";
                 for p in ft.params().iter() {
                     s += &format!(" {:?}", p);
                 }
@@ -25,16 +26,16 @@ impl Contract {
                 for r in ft.results().iter() {
                     s += &format!(" {:?}", r); 
                 }
-                s += ")";
+                s += ") [function]";
             },
             ExternType::Global(gt) => {
-
+                s += &format!(" {:?} {:?} [global]", gt.ty, gt.mutability);
             },
             ExternType::Table(tt) => {
-
+                s += " [table]";
             },
             ExternType::Memory(mt) => {
-
+                s += " [memory]";
             }
         }
 
@@ -53,7 +54,7 @@ impl Contract {
 
             // Seems to be missing.
             return Err(ContractError::ExportErr(
-                format!("missing export `{}`", Contract::format_export(export))
+                format!("missing export `{}{}`", export.name(), Contract::format_extern(export.ty()))
             ));
         }
 
@@ -69,7 +70,7 @@ impl Contract {
             // NOTE: This isn't that bad but we keep
             // it conservative.
             return Err(ContractError::ImportErr(
-                format!("missing import `{:?}`", import)
+                format!("missing import `{}::{}{}`", import.module(), import.name(), Contract::format_extern(import.ty()))
             ));
         }
         
@@ -161,7 +162,7 @@ mod tests {
 
         assert_eq!(
             Err(ContractError::ExportErr(
-                    "missing export `width(param)(result F32)`".to_string())), 
+                    "missing export `width(param)(result F32) [function]`".to_string())), 
             contract.check(&module)
         );
     }
@@ -192,7 +193,39 @@ mod tests {
 
         assert_eq!(
             Err(ContractError::ExportErr(
-                    "missing export `draw(param F32 F32)(result)`".to_string())), 
+                    "missing export `draw(param F32 F32)(result) [function]`".to_string())), 
+            contract.check(&module)
+        );
+    }
+
+    #[test]
+    fn missing_import_test() {
+        let module_wat = r#"
+            (module
+                (func (export "width") (result f32)
+                    f32.const 80
+                )
+                (func (export "draw") (param $x f32) (param $y f32)
+                )
+            )
+        "#;
+        
+        let store = Store::default();
+        let module = Module::new(&store, module_wat).expect("unable to create module");
+        
+        let contract = Contract {
+            exports: vec![
+                ExportType::new("width", ExternType::Function(FunctionType::new([], [Type::F32]))),
+                ExportType::new("draw", ExternType::Function(FunctionType::new([Type::F32, Type::F32], []))),
+            ],
+            imports: vec![
+                ImportType::new("env", "draw_rectangle", ExternType::Function(FunctionType::new([Type::F32, Type::F32, Type::F32, Type::F32], []))), 
+            ],
+        };
+
+        assert_eq!(
+            Err(ContractError::ImportErr(
+                    "missing import `env::draw_rectangle(param F32 F32 F32 F32)(result) [function]`".to_string())), 
             contract.check(&module)
         );
     }
