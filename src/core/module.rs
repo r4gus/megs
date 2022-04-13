@@ -1,4 +1,4 @@
-use wasmer::{Store, Module, Instance, Value, imports, ImportObject, Function};
+use wasmer::{Store, Module, Instance, Value, imports, ImportObject, FunctionType, Type, ImportType, ExternType, Function, ExportType};
 use macroquad::prelude::*;
 use uuid::Uuid;
 use std::{
@@ -6,8 +6,57 @@ use std::{
     path::{Path},
     fs::{File},
     collections::HashMap,
+    convert::From,
+    error::Error,
+    fmt,
 };
 use crate::misc::{Point, parse_path};
+use crate::core::contract::*;
+
+#[derive(Debug)]
+pub enum ModuleError {
+    CompileErr(wasmer::CompileError),
+    ContractErr(ContractError),
+    IOErr(std::io::Error),
+}
+
+impl From<wasmer::CompileError> for ModuleError {
+    fn from(e: wasmer::CompileError) -> Self {
+        Self::CompileErr(e)
+    }
+}
+
+impl From<ContractError> for ModuleError {
+    fn from(e: ContractError) -> Self {
+        Self::ContractErr(e)
+    }
+}
+
+impl From<std::io::Error> for ModuleError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IOErr(e)
+    }
+}
+
+impl fmt::Display for ModuleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ModuleError::CompileErr(e) => {
+                write!(f, "{}", &e)
+            },
+            ModuleError::ContractErr(e) => {
+                write!(f, "{}", &e)
+            },
+            ModuleError::IOErr(e) => {
+                write!(f, "{}", &e)
+            },
+        }
+    }
+}
+
+impl Error for ModuleError {
+
+}
 
 /// The instance of a [`LogicModule`].
 ///
@@ -169,6 +218,8 @@ pub struct ModuleEnv {
     instances: HashMap<Uuid, LogicInstance>,
     /// A import contract all modules should obey.
     imports: ImportObject,
+    /// A contract that all module must obey.
+    contract: Contract,
     /// Global category counter.
     cat_id: usize,
     /// Global module counter
@@ -182,12 +233,13 @@ impl ModuleEnv {
     /// of the environment and the contract specifies which globals,
     /// functions, ... all modules expect from the host environment
     /// as imports.
-    pub fn new(store: Store, contract: ImportObject) -> Self {
+    pub fn new(store: Store, imports: ImportObject, contract: Contract) -> Self {
         Self {
             store: store.clone(),
             categories: HashMap::new(),
             instances: HashMap::new(),
-            imports: contract,
+            imports,
+            contract,
             cat_id: 0,
             mod_id: 0,
         }
@@ -243,24 +295,27 @@ impl ModuleEnv {
         &mut self, 
         category: &str, 
         name: &str, 
-        module: &[u8]
-    ) -> Result<(), wasmer::CompileError> {
+        module: &[u8],
+    ) -> Result<(), ModuleError> {
         // Create the category if it doesn't exist.
         if !self.categories.contains_key(category) {
             self.add_category(category.to_string());
         }
         
         let id = self.mod_id;
-        self.mod_id += 1;
+
+        let module = Module::new(&self.store, module)?;
+        self.contract.check(&module)?;
 
         self.categories.get_mut(category).unwrap().add_module(
             LogicModule::new(
                 name.to_string(),
                 id,
-                Module::new(&self.store, module)?
+                module,
             )
         );
 
+        self.mod_id += 1;
         Ok(())
     }
     
@@ -270,22 +325,14 @@ impl ModuleEnv {
     ///
     /// After adding the module one can create new instances of
     /// it by invoking [`ModuleEnv::instantiate`].
-    pub fn add_module(&mut self, wasm_file: &Path) -> Option<()> { // TODO: figure out ret type
+    pub fn add_module(&mut self, wasm_file: &Path) -> Result<(), ModuleError> {
         let mut buffer = Vec::new();
-        
-        if let Ok(mut module) = File::open(wasm_file) {
-            if let Ok(_) = module.read_to_end(&mut buffer) {
-                if let Some((category, name)) = parse_path(wasm_file) {
-                    println!("{}, {}", &category, &name);
-                    match self.add_module_raw(&category, &name, &buffer) {
-                        Ok(_) => { return Some(()); },
-                        _ => {}
-                    }
-                } 
-            } 
-        } 
+        let mut module = File::open(wasm_file)?;
+        module.read_to_end(&mut buffer)?;
 
-        None
+        let (category, name) = parse_path(wasm_file).expect("invalid path");
+        println!("{}, {}", &category, &name);
+        self.add_module_raw(&category, &name, &buffer)
     }
     
     /// Create a new instance of the specified module.
@@ -311,20 +358,27 @@ impl ModuleEnv {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{
-        draw_rectangle,
-        Color as MColor,
-    };
+
+    pub fn draw_rectangle(x: f32, y: f32, w: f32, h: f32, r: f32, g: f32, b: f32) {
+
+    }
 
     #[test]
     fn create_new_module_env_test() {
         let store = Store::default();
-        let contract = imports! {
+        let imports = imports! {
             "env" => {
                 "draw_rectangle" => Function::new_native(&store, draw_rectangle),
             },
         };
-        let env = ModuleEnv::new(store, contract);
+        let contract = Contract {
+            exports: vec![],
+            imports: vec![
+                ImportType::new("env", "draw_rectangle", ExternType::Function(FunctionType::new([Type::F32, Type::F32, Type::F32, Type::F32, Type::F32, Type::F32, Type::F32], []))),
+            ],
+        };
+
+        let env = ModuleEnv::new(store, imports, contract);
         assert_eq!(0, env.categories().len());
         assert_eq!(0, env.instances().len());
     }
@@ -332,12 +386,18 @@ mod tests {
     #[test]
     fn add_category_test() {
         let store = Store::default();
-        let contract = imports! {
+        let imports = imports! {
             "env" => {
                 "draw_rectangle" => Function::new_native(&store, draw_rectangle),
             },
         };
-        let mut env = ModuleEnv::new(store, contract);
+        let contract = Contract {
+            exports: vec![],
+            imports: vec![
+                ImportType::new("env", "draw_rectangle", ExternType::Function(FunctionType::new([Type::F32, Type::F32, Type::F32, Type::F32, Type::F32, Type::F32, Type::F32], []))),
+            ],
+        };
+        let mut env = ModuleEnv::new(store, imports, contract);
         env.add_category("Gates".to_string());
         env.add_category("Input Controlls".to_string());
         assert_eq!(2, env.categories().len());
@@ -363,12 +423,20 @@ mod tests {
         "#;
 
         let store = Store::default();
-        let contract = imports! {
+        let imports = imports! {
             "env" => {
                 "draw_rectangle" => Function::new_native(&store, draw_rectangle),
             },
         };
-        let mut env = ModuleEnv::new(store, contract);
+        let contract = Contract {
+            exports: vec![
+                ExportType::new("draw", ExternType::Function(FunctionType::new([Type::F32, Type::F32, Type::F32], []))),
+            ],
+            imports: vec![
+                ImportType::new("env", "draw_rectangle", ExternType::Function(FunctionType::new([Type::F32, Type::F32, Type::F32, Type::F32, Type::F32, Type::F32, Type::F32], []))),
+            ],
+        };
+        let mut env = ModuleEnv::new(store, imports, contract);
         env.add_category("Gates".to_string());
         env.add_category("Input Controlls".to_string());
         env.add_module_raw("Gates", "AND", module_wat.as_bytes());

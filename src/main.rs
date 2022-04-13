@@ -2,8 +2,8 @@ use macroquad::prelude::*;
 use macroquad::ui::root_ui;
 use megs::core::module::*;
 use megs::misc::*;
-use megs::contract;
-use wasmer::{Store, Function, imports};
+use megs::core::contract::*;
+use wasmer::{Store, Function, imports, Type, ImportType, ExportType, FunctionType, ExternType};
 
 #[macroquad::main("MEGS")]
 async fn main() {
@@ -17,20 +17,32 @@ async fn main() {
             )
         )
     "#;
-
+    
     let store = Store::default();
-    let contract = imports! {
+    let imports = imports! {
         "env" => {
-            "draw_rectangle" => Function::new_native(&store, contract::draw_rectangle),
-            "draw_circle" => Function::new_native(&store, contract::draw_circle),
-            "draw_circle_lines" => Function::new_native(&store, contract::draw_circle_lines),
-            "draw_line" => Function::new_native(&store, contract::draw_line),
+            "draw_rectangle" => Function::new_native(&store, megs::contract::draw_rectangle),
+            "draw_circle" => Function::new_native(&store, megs::contract::draw_circle),
+            "draw_circle_lines" => Function::new_native(&store, megs::contract::draw_circle_lines),
+            "draw_line" => Function::new_native(&store, megs::contract::draw_line),
         },
     };
-    let mut env = ModuleEnv::new(store, contract);
+    let contract = Contract {
+        exports: vec![
+            ExportType::new("width", ExternType::Function(FunctionType::new([], [Type::F32]))),
+            ExportType::new("height", ExternType::Function(FunctionType::new([], [Type::F32]))),
+            ExportType::new("draw", ExternType::Function(FunctionType::new([Type::F32, Type::F32, Type::F32], []))),
+        ],
+        imports: inobj_types(&imports),
+    };
+
+    let mut env = ModuleEnv::new(store, imports, contract);
     env.add_category("Gates".to_string());
     //env.add_module_raw("Gates", "AND", module_wat.as_bytes());
-    env.add_module(&std::path::Path::new("assets/modules/Gates/and.wasm"));
+    match env.add_module(&std::path::Path::new("assets/modules/Gates/and.wasm")) {
+        Err(e) => println!("{}", e),
+        _ => {}
+    };
     env.instantiate("Gates", "and", Point { x: 0.0, y: 0.0 });
     env.instantiate("Gates", "and", Point { x: 50.0, y: 30.0 });
     env.instantiate("Gates", "and", Point { x: -15.0, y: 200.0 });
