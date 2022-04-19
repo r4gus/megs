@@ -3,10 +3,11 @@ use std::{
 };
 
 /// A point in 2d space.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
+    pub z: f32,
 }
 
 pub fn parse_path(wasm_file: &Path) -> Option<(String, String)> {

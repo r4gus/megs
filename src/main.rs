@@ -1,9 +1,11 @@
 use macroquad::prelude::*;
 use macroquad::ui::root_ui;
 use megs::core::module::*;
+use megs::interaction::InteractionEnv;
 use megs::misc::*;
 use megs::core::contract::*;
 use wasmer::{Store, Function, imports, Type, ImportType, ExportType, FunctionType, ExternType};
+use megs::ui::dnd::Hoverable;
 
 #[macroquad::main("MEGS")]
 async fn main() {
@@ -43,19 +45,22 @@ async fn main() {
         Err(e) => println!("{}", e),
         _ => {}
     };
-    env.instantiate("Gates", "and", Point { x: 0.0, y: 0.0 });
-    env.instantiate("Gates", "and", Point { x: 50.0, y: 30.0 });
-    env.instantiate("Gates", "and", Point { x: -15.0, y: 200.0 });
+    env.instantiate("Gates", "and", Point { x: 0.0, y: 0.0, z: 0.0 });
+    env.instantiate("Gates", "and", Point { x: 50.0, y: 30.0, z: 0.0 });
+    env.instantiate("Gates", "and", Point { x: -15.0, y: 200.0, z: 0.0 });
 
+    let mut ienv = InteractionEnv::new();
 
     println!("{}", env.categories()["Gates"].modules().len());
     println!("{}", env.instances().len());
 
     loop {
         clear_background(RED);
+        let mpos = mouse_position();
 
         env.on_tick();
-        
+        ienv.update(&mut env);
+
         /*
         draw_line(40.0, 40.0, 100.0, 200.0, 15.0, BLUE);
         draw_rectangle(screen_width() / 2.0 - 60.0, 100.0, 120.0, 60.0, GREEN);
@@ -69,6 +74,7 @@ async fn main() {
         
 
         draw_text(&format!("fps: {}", get_fps()), 300.0, 500.0, 30.0, BLACK);
+        draw_text(&format!("mpos: {:?}", mpos), 300.0, 550.0, 30.0, BLACK);
 
         next_frame().await
     }

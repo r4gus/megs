@@ -104,12 +104,22 @@ impl LogicInstance {
         }
     }
 
-    pub fn submit_cursor_coords(&self, point: Point) {
-        if let Ok(submit) = self.instance.exports.get_function("cursor_coords") {
-            submit.call(&[Value::F32(point.x), Value::F32(point.y)]);
-        } else {
-            // TODO: log error
-        }
+    pub fn width(&self) -> f32 {
+        self.instance.exports.get_function("width")
+            .expect("couldn't access function `width`")
+            .native::<(), f32>()
+            .expect("couldn't access `width` as native function")
+            .call()
+            .expect("failed to call `width`")
+    }
+
+    pub fn height(&self) -> f32 {
+        self.instance.exports.get_function("height")
+            .expect("couldn't access function `height`")
+            .native::<(), f32>()
+            .expect("couldn't access `height` as native function")
+            .call()
+            .expect("failed to call `height`")
     }
 }
 
@@ -268,6 +278,11 @@ impl ModuleEnv {
     /// Get a reference to all existing instances.
     pub fn instances(&self) -> &HashMap<Uuid, LogicInstance> {
         &self.instances
+    }
+    
+    /// Get a reference to all existing instances.
+    pub fn mut_instances(&mut self) -> &mut HashMap<Uuid, LogicInstance> {
+        &mut self.instances
     }
     
     pub fn on_tick(&self) {
@@ -444,9 +459,9 @@ mod tests {
         assert_eq!(0, env.categories()["Input Controlls"].modules().len());
         assert_eq!("AND", env.module_names("Gates").unwrap()[0]);
 
-        env.instantiate("Gates", "AND", Point { x: 0.0, y: 0.0 });
-        env.instantiate("Gates", "AND", Point { x: 50.0, y: 30.0 });
-        env.instantiate("Gates", "AND", Point { x: -15.0, y: 200.0 });
+        env.instantiate("Gates", "AND", Point { x: 0.0, y: 0.0, z: 0.0 });
+        env.instantiate("Gates", "AND", Point { x: 50.0, y: 30.0, z: 0.0 });
+        env.instantiate("Gates", "AND", Point { x: -15.0, y: 200.0, z: 0.0 });
         assert_eq!(3, env.instances().len());
     }
 }
