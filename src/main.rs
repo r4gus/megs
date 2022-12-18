@@ -18,13 +18,13 @@ async fn main() {
         )
     "#;
     
-    let store = Store::default();
+    let mut store = Store::default();
     let imports = imports! {
         "env" => {
-            "draw_rectangle" => Function::new_native(&store, megs::contract::draw_rectangle),
-            "draw_circle" => Function::new_native(&store, megs::contract::draw_circle),
-            "draw_circle_lines" => Function::new_native(&store, megs::contract::draw_circle_lines),
-            "draw_line" => Function::new_native(&store, megs::contract::draw_line),
+            "draw_rectangle" => Function::new_native(&mut store, megs::contract::draw_rectangle),
+            "draw_circle" => Function::new_native(&mut store, megs::contract::draw_circle),
+            "draw_circle_lines" => Function::new_native(&mut store, megs::contract::draw_circle_lines),
+            "draw_line" => Function::new_native(&mut store, megs::contract::draw_line),
         },
     };
     let contract = Contract {
@@ -33,7 +33,7 @@ async fn main() {
             ExportType::new("height", ExternType::Function(FunctionType::new([], [Type::F32]))),
             ExportType::new("draw", ExternType::Function(FunctionType::new([Type::F32, Type::F32, Type::F32], []))),
         ],
-        imports: inobj_types(&imports),
+        imports: inobj_types(&imports, &store),
     };
 
     let mut env = ModuleEnv::new(store, imports, contract);

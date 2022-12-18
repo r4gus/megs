@@ -1,4 +1,4 @@
-use wasmer::{Store, Module, Instance, Value, imports, ImportObject, FunctionType, Type, ImportType, ExternType, Function, ExportType};
+use wasmer::{Store, Module, Instance, Value, imports, Imports, FunctionType, Type, ImportType, ExternType, Function, ExportType, AsStoreMut};
 use macroquad::prelude::*;
 use uuid::Uuid;
 use std::{
@@ -96,17 +96,17 @@ impl LogicInstance {
     /// Draw the instance
     ///
     /// TODO: Encapsulate specific function within trait???
-    pub fn draw(&self) {
+    pub fn draw(&self, store: &mut impl AsStoreMut) {
         if let Ok(draw) = self.instance.exports.get_function("draw") {
-            draw.call(&[Value::F32(self.location.x), Value::F32(self.location.y), Value::F32(self.rotation)]);
+            draw.call(store, &[Value::F32(self.location.x), Value::F32(self.location.y), Value::F32(self.rotation)]);
         } else {
             // TODO: log error
         }
     }
 
-    pub fn submit_cursor_coords(&self, point: Point) {
+    pub fn submit_cursor_coords(&self, store: &mut impl AsStoreMut, point: Point) {
         if let Ok(submit) = self.instance.exports.get_function("cursor_coords") {
-            submit.call(&[Value::F32(point.x), Value::F32(point.y)]);
+            submit.call(store, &[Value::F32(point.x), Value::F32(point.y)]);
         } else {
             // TODO: log error
         }
@@ -156,7 +156,8 @@ impl LogicModule {
     /// Create a new instance based on the given module.
     pub fn instantiate(
         &self, 
-        imports: &ImportObject, 
+        store: &mut impl AsStoreMut,
+        imports: &Imports, 
         location: Point, 
         rotation: f32
     ) -> Result<LogicInstance, wasmer::InstantiationError> {
@@ -165,7 +166,7 @@ impl LogicModule {
                 self.name.clone(), 
                 location, 
                 rotation, 
-                Instance::new(&self.module, imports)?
+                Instance::new(store, &self.module, imports)?
             )
         )
     }
@@ -203,7 +204,7 @@ impl Category {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ModuleEnv {
     /// The store represents all global state that can be
     /// manipulated by WebAssembly programs. It consists
@@ -217,7 +218,7 @@ pub struct ModuleEnv {
     /// All instances of [`LogicModules`].
     instances: HashMap<Uuid, LogicInstance>,
     /// A import contract all modules should obey.
-    imports: ImportObject,
+    imports: Imports,
     /// A contract that all module must obey.
     contract: Contract,
     /// Global category counter.
@@ -233,9 +234,9 @@ impl ModuleEnv {
     /// of the environment and the contract specifies which globals,
     /// functions, ... all modules expect from the host environment
     /// as imports.
-    pub fn new(store: Store, imports: ImportObject, contract: Contract) -> Self {
+    pub fn new(store: Store, imports: Imports, contract: Contract) -> Self {
         Self {
-            store: store.clone(),
+            store,
             categories: HashMap::new(),
             instances: HashMap::new(),
             imports,
@@ -270,9 +271,9 @@ impl ModuleEnv {
         &self.instances
     }
     
-    pub fn on_tick(&self) {
+    pub fn on_tick(&mut self) {
         for (_, instance) in &self.instances {
-            instance.draw();
+            instance.draw(&mut self.store);
         }
     }
     
@@ -343,7 +344,7 @@ impl ModuleEnv {
         }
 
         if let Ok(instance) = self.categories[category].modules()[module].instantiate(
-            &self.imports, pos, 0.0
+            &mut self.store, &self.imports, pos, 0.0
         ) {
             let uuid = Some(instance.id());
             self.instances.insert(instance.id(), instance);
@@ -365,10 +366,10 @@ mod tests {
 
     #[test]
     fn create_new_module_env_test() {
-        let store = Store::default();
+        let mut store = Store::default();
         let imports = imports! {
             "env" => {
-                "draw_rectangle" => Function::new_native(&store, draw_rectangle),
+                "draw_rectangle" => Function::new_native(&mut store, draw_rectangle),
             },
         };
         let contract = Contract {
@@ -385,10 +386,10 @@ mod tests {
 
     #[test]
     fn add_category_test() {
-        let store = Store::default();
+        let mut store = Store::default();
         let imports = imports! {
             "env" => {
-                "draw_rectangle" => Function::new_native(&store, draw_rectangle),
+                "draw_rectangle" => Function::new_native(&mut store, draw_rectangle),
             },
         };
         let contract = Contract {
@@ -422,10 +423,10 @@ mod tests {
             )
         "#;
 
-        let store = Store::default();
+        let mut store = Store::default();
         let imports = imports! {
             "env" => {
-                "draw_rectangle" => Function::new_native(&store, draw_rectangle),
+                "draw_rectangle" => Function::new_native(&mut store, draw_rectangle),
             },
         };
         let contract = Contract {

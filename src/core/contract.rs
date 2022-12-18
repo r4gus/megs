@@ -1,4 +1,4 @@
-use wasmer::{ExportType, ImportType, ImportObject, Module, imports, ExternType};
+use wasmer::{ExportType, ImportType, Imports, Module, imports, ExternType, AsStoreRef};
 use std::{
     error::Error,
     fmt,
@@ -102,30 +102,17 @@ impl Error for ContractError {
     
 }
 
-/// Translate the exports of the given [`ImportObject`] into
+/// Translate the exports of the given [`Imports`] into
 /// [`ImportType`]s.
-pub fn inobj_types(io: &ImportObject) -> Vec<ImportType> {
+pub fn inobj_types(io: &Imports, store: &impl AsStoreRef) -> Vec<ImportType> {
     let mut v = Vec::new();
 
-    for ((module, name), exp) in io.clone().into_iter() {
+    for ((module, name), ext) in io.clone().into_iter() {
         v.push(
             ImportType::new(
                 &module, 
                 &name, 
-                match exp {
-                    wasmer::Export::Function(ef) => {
-                        ExternType::Function(ef.vm_function.signature)
-                    },
-                    wasmer::Export::Table(vmt) => {
-                        ExternType::Table(vmt.from.ty().clone())
-                    },
-                    wasmer::Export::Memory(vmm) => {
-                        ExternType::Memory(vmm.from.ty().clone())
-                    },
-                    wasmer::Export::Global(vmg) => {
-                        ExternType::Global(vmg.from.ty().clone())
-                    }
-                }
+                ext.ty(store)
             )
         );
     }
@@ -136,7 +123,7 @@ pub fn inobj_types(io: &ImportObject) -> Vec<ImportType> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasmer::{ExportType, ImportType, FunctionType, ImportObject, Module, imports, Store, Type, ExternType};
+    use wasmer::{ExportType, ImportType, FunctionType, Imports, Module, imports, Store, Type, ExternType};
     
     #[test]
     fn check_contract_test() {
@@ -281,10 +268,10 @@ mod tests {
 
         }
         
-        let store = Store::default();
+        let mut store = Store::default();
         let imports = imports! {
             "env" => {
-                "draw_rectangle" => wasmer::Function::new_native(&store, draw_rectangle),
+                "draw_rectangle" => wasmer::Function::new_native(&mut store, draw_rectangle),
             },
         };
         let module = Module::new(&store, module_wat).expect("unable to create module");
@@ -294,7 +281,7 @@ mod tests {
                 ExportType::new("width", ExternType::Function(FunctionType::new([], [Type::F32]))),
                 ExportType::new("draw", ExternType::Function(FunctionType::new([Type::F32, Type::F32], []))),
             ],
-            imports: inobj_types(&imports),
+            imports: inobj_types(&imports, &store),
         };
 
         assert_eq!(Ok(()), contract.check(&module));
